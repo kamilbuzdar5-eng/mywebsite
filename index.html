@@ -536,6 +536,37 @@ tr:hover { background: #e3f2fd; }
             <div class="form-group"><label>University / College</label><input type="text" id="applyUni" placeholder="Institution name"></div>
         </div>
         <div class="form-group"><label>Additional Notes</label><textarea id="applyNotes" placeholder="Any special requirements..."></textarea></div>
+
+        <!-- Photo Upload -->
+        <div style="background:#f0f5ff;border:2px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;">
+          <div style="font-weight:700;color:var(--primary);margin-bottom:10px;">📷 Applicant Photo <span style="color:#d32f2f;">*</span></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Passport-Size Photo</label>
+              <input type="file" id="applyPhoto" accept="image/*" onchange="previewApplyPhoto(event)">
+              <div class="photo-preview" id="applyPhotoPreview" style="margin-top:8px;width:100px;height:100px;border-radius:6px;"><span style="font-size:28px;color:#ccc;">📷</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ID Card Upload -->
+        <div style="background:#f0f5ff;border:2px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;">
+          <div style="font-weight:700;color:var(--primary);margin-bottom:4px;">🪪 CNIC / B-Form Photos <span style="color:#d32f2f;">*</span></div>
+          <div style="font-size:12px;color:#c62828;font-weight:600;margin-bottom:10px;">⚠️ Attaching CNIC / B-Form photos is mandatory for online application.</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>ID Card — Front Side <span style="color:#d32f2f;">*</span></label>
+              <input type="file" id="applyIdFront" accept="image/*" onchange="previewApplyId(event,'applyIdFrontPrev')">
+              <div class="id-card-preview" id="applyIdFrontPrev"><span>📷 Upload / Capture Front</span></div>
+            </div>
+            <div class="form-group">
+              <label>ID Card — Back Side <span style="color:#d32f2f;">*</span></label>
+              <input type="file" id="applyIdBack" accept="image/*" onchange="previewApplyId(event,'applyIdBackPrev')">
+              <div class="id-card-preview" id="applyIdBackPrev"><span>📷 Upload / Capture Back</span></div>
+            </div>
+          </div>
+        </div>
+
         <button class="btn btn-success" onclick="submitApplication()" style="padding:12px 28px;font-size:15px;">📤 Submit Application</button>
         <div id="applyResult"></div>
     </div>
@@ -980,6 +1011,9 @@ let currentClearRef    = null;
 let studentPhotoB64    = null;
 let studentIdFrontB64  = null;
 let studentIdBackB64   = null;
+let applyPhotoB64      = null;
+let applyIdFrontB64    = null;
+let applyIdBackB64     = null;
 
 // ============================================================
 //  UTILITIES
@@ -1197,6 +1231,14 @@ async function submitApplication() {
         showAlert('applyAlert','⚠️ Please fill all required (*) fields.','danger');
         return;
     }
+    if (!applyPhotoB64) {
+        showAlert('applyAlert','⚠️ Please upload your passport-size photo.','danger');
+        return;
+    }
+    if (!applyIdFrontB64 || !applyIdBackB64) {
+        showAlert('applyAlert','⚠️ Please upload both front and back of your CNIC / B-Form.','danger');
+        return;
+    }
 
     const refNo = await genRef('APP');
     const app = {
@@ -1208,6 +1250,9 @@ async function submitApplication() {
         emergency: $('applyEmergency').value.trim(),
         university: $('applyUni').value.trim(),
         notes:   $('applyNotes').value.trim(),
+        photo:   applyPhotoB64,
+        idFront: applyIdFrontB64,
+        idBack:  applyIdBackB64,
         status:  'pending',
         submitDate: new Date().toISOString()
     };
@@ -1226,6 +1271,13 @@ async function submitApplication() {
     // clear form
     ['applyName','applyDob','applyCnic','applyPhone','applyEmail','applyFather','applyAddress','applyDistrict','applyEmergency','applyUni','applyNotes']
         .forEach(id=>{ if($(id)) $(id).value=''; });
+    if($('applyPhoto')) $('applyPhoto').value='';
+    if($('applyIdFront')) $('applyIdFront').value='';
+    if($('applyIdBack')) $('applyIdBack').value='';
+    if($('applyPhotoPreview')) $('applyPhotoPreview').innerHTML='<span style="font-size:28px;color:#ccc;">📷</span>';
+    if($('applyIdFrontPrev')) $('applyIdFrontPrev').innerHTML='<span>📷 Upload / Capture Front</span>';
+    if($('applyIdBackPrev')) $('applyIdBackPrev').innerHTML='<span>📷 Upload / Capture Back</span>';
+    applyPhotoB64 = null; applyIdFrontB64 = null; applyIdBackB64 = null;
 }
 
 async function checkApplicationStatus() {
@@ -1437,6 +1489,31 @@ function previewVisitorId(evt, previewId) {
     r.readAsDataURL(file);
 }
 
+function previewApplyPhoto(evt) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = e => {
+        applyPhotoB64 = e.target.result;
+        const el = $('applyPhotoPreview');
+        if (el) el.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">`;
+    };
+    r.readAsDataURL(file);
+}
+
+function previewApplyId(evt, previewId) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = e => {
+        if (previewId === 'applyIdFrontPrev') applyIdFrontB64 = e.target.result;
+        else applyIdBackB64 = e.target.result;
+        const el = $(previewId);
+        if (el) el.innerHTML = `<img src="${e.target.result}">`;
+    };
+    r.readAsDataURL(file);
+}
+
 // ── Print Overlay ──────────────────────────────────────────────────
 function showPrintOverlay(bodyHTML) {
     $('poBody').innerHTML = bodyHTML;
@@ -1484,101 +1561,126 @@ async function printStudentForm(i) {
     if (!s) return;
     const today = new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
     const photoHtml = s.photo
-        ? `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">`
-        : '<div style="font-size:11px;color:#aaa;text-align:center;padding-top:20px;">Photo</div>';
+        ? `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;">`
+        : '<div style="font-size:9px;color:#aaa;text-align:center;padding-top:22px;">Photo</div>';
+
+    const idFrontHtml = s.idFront
+        ? `<img src="${s.idFront}" style="width:100%;height:auto;max-height:65px;object-fit:contain;">`
+        : '<div style="font-size:9px;color:#aaa;text-align:center;padding:18px 4px;">Front Side</div>';
+    const idBackHtml = s.idBack
+        ? `<img src="${s.idBack}" style="width:100%;height:auto;max-height:65px;object-fit:contain;">`
+        : '<div style="font-size:9px;color:#aaa;text-align:center;padding:18px 4px;">Back Side</div>';
 
     const formHTML = `
-    <div class="a4" style="font-family:Arial,sans-serif;color:#000;padding:12mm 14mm;">
+    <div class="a4" style="font-family:Arial,sans-serif;color:#000;padding:8mm 11mm;font-size:11px;">
+
       <!-- HEADER -->
-      <div style="display:flex;align-items:center;gap:16px;border-bottom:3px solid #1b5e20;padding-bottom:12px;margin-bottom:16px;">
-        <img src="${LOGO_B64}" style="height:70px;">
+      <div style="display:flex;align-items:center;gap:12px;border-bottom:3px solid #1b5e20;padding-bottom:8px;margin-bottom:10px;">
+        <img src="${LOGO_B64}" style="height:58px;">
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:700;color:#1b5e20;letter-spacing:1px;">ISLAM BOYS HOSTEL</div>
+          <div style="font-size:10px;color:#555;font-style:italic;">Sui Gas Road Near MNS University of Agriculture, Multan</div>
+          <div style="font-size:12px;font-weight:700;margin-top:4px;text-decoration:underline;">STUDENT ADMISSION FORM</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="border:2px solid #333;width:75px;height:85px;overflow:hidden;display:flex;align-items:center;justify-content:center;">${photoHtml}</div>
+          <div style="font-size:8px;margin-top:2px;color:#555;">Passport Photo</div>
+        </div>
+      </div>
+
+      <!-- TWO COLUMN LAYOUT -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+
+        <!-- LEFT: Student Info -->
         <div>
-          <div style="font-size:22px;font-weight:700;color:#1b5e20;letter-spacing:1px;">ISLAM BOYS HOSTEL</div>
-          <div style="font-size:12px;color:#555;margin-top:3px;font-style:italic;">Sui Gas Road Near MNS University of Agriculture, Multan</div>
-          <div style="font-size:13px;font-weight:700;color:#000;margin-top:6px;text-decoration:underline;">STUDENT ADMISSION FORM</div>
+          <div style="font-size:12px;font-weight:700;text-decoration:underline;margin-bottom:6px;color:#1b5e20;">A. Student Information</div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <tr><td style="padding:3px 2px;width:45%;font-weight:700;">1. Name:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.name}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">2. Father's Name:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.fatherName||''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">3. CNIC / B-Form:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.cnic||''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">4. Date of Birth:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.dob ? new Date(s.dob).toLocaleDateString('en-GB') : ''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">5. Home District:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.homeDistrict||''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;vertical-align:top;">6. Permanent Address:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.address||''}</td></tr>
+          </table>
         </div>
-        <div style="margin-left:auto;border:2px solid #333;width:90px;height:90px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
-          ${photoHtml}
+
+        <!-- RIGHT: Hostel Info -->
+        <div>
+          <div style="font-size:12px;font-weight:700;text-decoration:underline;margin-bottom:6px;color:#1b5e20;">B. Hostel Details</div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <tr><td style="padding:3px 2px;width:45%;font-weight:700;">Student ID:</td><td style="padding:3px 2px;border-bottom:1px solid #333;font-family:monospace;font-weight:700;">${s.id}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Room No.:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.roomNo||''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Monthly Fee:</td><td style="padding:3px 2px;border-bottom:1px solid #333;font-weight:700;">Rs. ${s.monthlyFee}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Join Date:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.joinDate ? new Date(s.joinDate).toLocaleDateString('en-GB') : ''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Phone:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.phone}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Emergency Contact:</td><td style="padding:3px 2px;border-bottom:1px solid #333;">${s.emergencyContact||''}</td></tr>
+            <tr><td style="padding:3px 2px;font-weight:700;">Hostel Code:</td><td style="padding:3px 2px;border-bottom:1px solid #333;font-family:monospace;font-size:9px;">${s.hostelCode||''}</td></tr>
+          </table>
+
+          <!-- ID CARD PHOTOS — MANDATORY -->
+          <div style="margin-top:8px;border:2px solid #1b5e20;border-radius:4px;padding:6px;">
+            <div style="font-size:10px;font-weight:700;color:#1b5e20;margin-bottom:4px;">🪪 CNIC / B-Form (Required)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <div>
+                <div style="font-size:8px;font-weight:700;margin-bottom:2px;text-align:center;">Front Side</div>
+                <div style="border:1px solid #999;height:68px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#f9f9f9;">${idFrontHtml}</div>
+              </div>
+              <div>
+                <div style="font-size:8px;font-weight:700;margin-bottom:2px;text-align:center;">Back Side</div>
+                <div style="border:1px solid #999;height:68px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#f9f9f9;">${idBackHtml}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- SECTION A -->
-      <div style="margin-bottom:14px;">
-        <div style="font-size:14px;font-weight:700;text-decoration:underline;margin-bottom:10px;">A. Student Information</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <tr><td style="padding:6px 4px;width:38%;font-weight:700;">1. Name:</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.name}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">2. Father's Name:</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.fatherName||''}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">3. CNIC / B-Form No.:</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.cnic||''}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;vertical-align:top;">4. Permanent Address:</td><td style="padding:6px 4px;border-bottom:1px solid #333;min-height:36px;">${s.address||''}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">5. Contact No. (Student):</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.phone}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">6. Contact No. (Father/Guardian):</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.emergencyContact||''}</td></tr>
-          <tr>
-            <td style="padding:6px 4px;font-weight:700;">7. Type:</td>
-            <td style="padding:6px 4px;">
-              <span style="border:1px solid #333;padding:3px 14px;margin-right:12px;font-weight:700;">✓ Student</span>
-              <span style="border:1px solid #333;padding:3px 14px;">Job Person</span>
-            </td>
-          </tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">8. Student ID:</td><td style="padding:6px 4px;border-bottom:1px solid #333;font-weight:700;font-family:monospace;">${s.id}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">9. Room No.:</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.roomNo||''}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">10. Monthly Fee:</td><td style="padding:6px 4px;border-bottom:1px solid #333;font-weight:700;">Rs. ${s.monthlyFee}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">11. Hostel Code:</td><td style="padding:6px 4px;border-bottom:1px solid #333;font-family:monospace;font-weight:700;">${s.hostelCode||''}</td></tr>
-          <tr><td style="padding:6px 4px;font-weight:700;">12. Join Date:</td><td style="padding:6px 4px;border-bottom:1px solid #333;">${s.joinDate ? new Date(s.joinDate).toLocaleDateString('en-GB') : ''}</td></tr>
-        </table>
-      </div>
-
-      <!-- RULES -->
-      <div style="margin-bottom:14px;">
-        <div style="font-size:14px;font-weight:700;text-decoration:underline;margin-bottom:8px;">Hostel Rules &amp; Regulations</div>
-        <ol style="font-size:11px;padding-left:18px;line-height:1.7;">
-          <li>Use of electrical appliances such as <strong>AC, Cooler, Heater, Iron, and Electric Kettle</strong> is strictly prohibited inside hostel rooms.</li>
-          <li>Students must keep their rooms clean. Any damage to hostel property will be charged to the concerned student.</li>
-          <li>Entry of outsiders into hostel rooms is strictly prohibited without permission from the hostel administration.</li>
-          <li>Students must follow hostel timings. Late entry without prior permission will not be allowed.</li>
-          <li>Loud music, noise, or any activity that disturbs other residents is strictly prohibited.</li>
-          <li>Smoking, drugs, and any kind of intoxicants are strictly banned inside the hostel premises.</li>
-          <li>Students must behave respectfully with hostel staff and fellow residents.</li>
-          <li>Any violation of hostel rules may result in a fine, cancellation of hostel allotment, or disciplinary action.</li>
-          <li>The hostel administration has the right to inspect rooms at any time.</li>
-          <li>Students must inform the hostel office in case of absence or leaving the hostel for more than one day.</li>
-        </ol>
+      <!-- RULES (compact) -->
+      <div style="margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;text-decoration:underline;margin-bottom:4px;color:#1b5e20;">Hostel Rules &amp; Regulations</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;">
+          <ol style="font-size:9px;padding-left:14px;line-height:1.6;margin:0;">
+            <li>AC, Cooler, Heater, Iron &amp; Electric Kettle are strictly prohibited.</li>
+            <li>Keep rooms clean; damage to hostel property will be charged.</li>
+            <li>Entry of outsiders without permission is strictly prohibited.</li>
+            <li>Follow hostel timings; late entry without permission not allowed.</li>
+            <li>Loud music or noise disturbing others is strictly prohibited.</li>
+          </ol>
+          <ol style="font-size:9px;padding-left:14px;line-height:1.6;margin:0;" start="6">
+            <li>Smoking, drugs, and intoxicants are strictly banned.</li>
+            <li>Behave respectfully with staff and fellow residents.</li>
+            <li>Violation may result in fine, cancellation, or disciplinary action.</li>
+            <li>Administration may inspect rooms at any time.</li>
+            <li>Inform admin if absent or leaving hostel for more than one day.</li>
+          </ol>
+        </div>
       </div>
 
       <!-- DECLARATION -->
-      <div style="font-size:11px;line-height:1.7;margin-bottom:16px;background:#f9f9f9;border:1px solid #ccc;padding:10px;border-radius:4px;">
+      <div style="font-size:9px;line-height:1.6;margin-bottom:8px;background:#f9f9f9;border:1px solid #ccc;padding:6px;border-radius:3px;">
         I hereby declare that the information provided above is true and correct to the best of my knowledge.
-        I agree to abide by all rules and regulations of the Islam Boys Hostel. In case of any violation,
-        I accept the disciplinary action taken by the hostel administration.
+        I agree to abide by all rules and regulations of Islam Boys Hostel and accept disciplinary action for any violation.
       </div>
 
       <!-- SIGNATURES -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-bottom:16px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;border-top:2px solid #1b5e20;padding-top:8px;">
         <div>
-          <div style="font-size:12px;font-weight:700;">Student's Signature:</div>
-          <div style="border-bottom:1px solid #333;margin-top:28px;"></div>
-          <div style="font-size:11px;margin-top:4px;">Name: ${s.name}</div>
+          <div style="font-size:10px;font-weight:700;">Student's Signature:</div>
+          <div style="border-bottom:1px solid #333;margin-top:22px;"></div>
+          <div style="font-size:9px;margin-top:3px;">Name: ${s.name}</div>
         </div>
         <div>
-          <div style="font-size:12px;font-weight:700;">Date:</div>
-          <div style="border-bottom:1px solid #333;margin-top:28px;">${today}</div>
-        </div>
-      </div>
-
-      <!-- WARDEN SIGN -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;border-top:2px solid #1b5e20;padding-top:10px;">
-        <div>
-          <div style="font-size:12px;font-weight:700;">Warden / Admin Signature:</div>
-          <div style="border-bottom:1px solid #333;margin-top:28px;"></div>
+          <div style="font-size:10px;font-weight:700;">Warden / Admin Signature:</div>
+          <div style="border-bottom:1px solid #333;margin-top:22px;"></div>
         </div>
         <div>
-          <div style="font-size:12px;font-weight:700;">Office Stamp:</div>
-          <div style="border:1px dashed #999;border-radius:50%;width:70px;height:70px;margin-top:4px;"></div>
+          <div style="font-size:10px;font-weight:700;">Date &amp; Office Stamp:</div>
+          <div style="font-size:10px;margin-top:4px;">${today}</div>
+          <div style="border:1px dashed #999;border-radius:50%;width:55px;height:55px;margin-top:4px;"></div>
         </div>
       </div>
 
-      <!-- NOTE -->
-      <div style="margin-top:12px;font-size:10px;font-style:italic;color:#555;">
-        <em>Note: Attach copies of CNIC/B-Form, admission letter, and two passport-size photographs.</em>
+      <div style="margin-top:6px;font-size:8.5px;font-style:italic;color:#555;">
+        <em>Note: ⚠️ Attaching CNIC/B-Form photo is mandatory. Also attach admission letter and two passport-size photographs.</em>
       </div>
     </div>`;
 
