@@ -5,6 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Islam Boys Hostel Multan - ERP System</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- ===== FIREBASE SDK ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCZ5dJb3j5HmvuQs5lIL5LCIDlvXmm9T88",
+    authDomain: "hostel-erp-c1c51.firebaseapp.com",
+    projectId: "hostel-erp-c1c51",
+    storageBucket: "hostel-erp-c1c51.firebasestorage.app",
+    messagingSenderId: "426729574973",
+    appId: "1:426729574973:web:55af664ad1dcdce5b49054"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  console.log("✅ Firebase connected!");
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap');
 
@@ -969,8 +985,78 @@ let studentIdBackB64   = null;
 //  UTILITIES
 // ============================================================
 const $  = id => document.getElementById(id);
-const gd = key => JSON.parse(localStorage.getItem(key) || '[]');
-const sd = (key, val) => localStorage.setItem(key, JSON.stringify(val));
+
+// ── Firebase helpers ──────────────────────────────────────────
+// Get all docs from a Firestore collection as an array
+async function gd(col) {
+    try {
+        const snap = await db.collection(col).get();
+        return snap.docs.map(d => d.data());
+    } catch(e) {
+        console.error('gd error', col, e);
+        return [];
+    }
+}
+
+// Save entire array to Firestore (replaces all docs)
+// Uses the first unique field found as document ID
+async function sd(col, arr) {
+    try {
+        const batch = db.batch();
+        // First clear existing docs
+        const snap = await db.collection(col).get();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        // Write new docs
+        const idField = {
+            students: 'id', applications: 'refNo', vouchers: 'vNo',
+            clearances: 'studentId_date', expenses: 'date',
+            complaints: 'date', visitors: 'date', leaves: 'date',
+            visitorVouchers: 'vNo'
+        };
+        arr.forEach((item, i) => {
+            const field = idField[col];
+            // Generate a stable doc ID
+            let docId;
+            if (col === 'students') docId = item.id;
+            else if (col === 'applications') docId = item.refNo;
+            else if (col === 'vouchers') docId = item.vNo;
+            else if (col === 'visitorVouchers') docId = item.vNo;
+            else docId = col + '_' + i + '_' + Date.now();
+            const ref = db.collection(col).doc(docId || String(i));
+            batch.set(ref, item);
+        });
+        await batch.commit();
+    } catch(e) {
+        console.error('sd error', col, e);
+    }
+}
+
+// Save a single document directly (faster than sd for single items)
+async function setDoc(col, docId, data) {
+    try {
+        await db.collection(col).doc(docId).set(data);
+    } catch(e) {
+        console.error('setDoc error', col, e);
+    }
+}
+
+// Delete a single document
+async function delDoc(col, docId) {
+    try {
+        await db.collection(col).doc(docId).delete();
+    } catch(e) {
+        console.error('delDoc error', col, e);
+    }
+}
+
+// Generate sequential reference numbers using Firestore counters
+async function genRef(prefix) {
+    const ref = db.collection('_counters').doc(prefix);
+    const snap = await ref.get();
+    const count = (snap.exists ? snap.data().count : 0) + 1;
+    await ref.set({ count });
+    return `${prefix}-${new Date().getFullYear()}-${String(count).padStart(4,'0')}`;
+}
 
 function showModal(id)  { $(id).style.display = 'block'; }
 function closeModal(id) { $(id).style.display = 'none'; }
@@ -980,12 +1066,6 @@ function showAlert(id, msg, type) {
     if (!el) return;
     el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
     setTimeout(() => { if(el) el.innerHTML = ''; }, 6000);
-}
-
-function genRef(prefix) {
-    const count = parseInt(localStorage.getItem(prefix+'_count') || '0') + 1;
-    localStorage.setItem(prefix+'_count', count);
-    return `${prefix}-${new Date().getFullYear()}-${String(count).padStart(4,'0')}`;
 }
 
 function formatMonth(ym) {
@@ -999,7 +1079,8 @@ function adminLogin() {
     const u = $('adminUsername').value;
     const p = $('adminPassword').value;
     if (u === ADMIN_USER && p === ADMIN_PASS) {
-        sd('currentUser', {name:'Administrator', role:'Admin'});
+        // Store session in localStorage (session only, not data)
+        localStorage.setItem('currentUser', JSON.stringify({name:'Administrator', role:'Admin'}));
         $('publicPortal').style.display  = 'none';
         $('adminPortal').style.display   = 'block';
         closeModal('adminLoginModal');
@@ -1049,13 +1130,13 @@ function showSection(id, btn) {
 // ============================================================
 //  DASHBOARD
 // ============================================================
-function loadDashboard() {
-    const students  = gd('students');
-    const vouchers  = gd('vouchers');
-    const expenses  = gd('expenses');
-    const apps      = gd('applications').filter(a=>a.status==='pending').length;
+async function loadDashboard() {
+    const students  = await gd('students');
+    const vouchers  = await gd('vouchers');
+    const expenses  = await gd('expenses');
+    const apps      = (await gd('applications')).filter(a=>a.status==='pending').length;
     const today     = new Date().toISOString().slice(0,10);
-    const att       = gd('att_'+today);
+    const att       = await gd('att_'+today);
     const present   = att.filter(a=>a.status==='present').length;
     const income    = vouchers.filter(v=>v.status==='paid').reduce((s,v)=>s+v.total,0);
     const exp       = expenses.reduce((s,e)=>s+e.amount,0);
@@ -1070,7 +1151,7 @@ function loadDashboard() {
     // update badges
     const ab = $('appBadge');
     const cb = $('clearBadge');
-    const clears = gd('clearances').filter(c=>c.status==='pending').length;
+    const clears = (await gd('clearances')).filter(c=>c.status==='pending').length;
     if(ab) ab.textContent = apps;
     if(cb) cb.textContent = clears;
 
@@ -1089,12 +1170,13 @@ function loadDashboard() {
         </table>`;
 }
 
-function resetDashboard() {
+async function resetDashboard() {
     const p = prompt('Enter admin password:');
     if (p !== ADMIN_PASS) { alert('Wrong password!'); return; }
     if (!confirm('Reset income & expenses to zero? Student records remain.')) return;
-    sd('vouchers',[]); sd('expenses',[]);
-    localStorage.setItem('IBH_count','0');
+    await sd('vouchers',[]); await sd('expenses',[]);
+    const cRef = db.collection('_counters').doc('IBH');
+    await cRef.set({count:0});
     loadDashboard();
     alert('✅ Financials reset!');
 }
@@ -1102,7 +1184,7 @@ function resetDashboard() {
 // ============================================================
 //  ONLINE APPLICATIONS
 // ============================================================
-function submitApplication() {
+async function submitApplication() {
     const name   = $('applyName').value.trim();
     const dob    = $('applyDob').value;
     const cnic   = $('applyCnic').value.trim();
@@ -1116,7 +1198,7 @@ function submitApplication() {
         return;
     }
 
-    const refNo = genRef('APP');
+    const refNo = await genRef('APP');
     const app = {
         refNo, name, dob, cnic, phone,
         email:   $('applyEmail').value.trim(),
@@ -1130,9 +1212,7 @@ function submitApplication() {
         submitDate: new Date().toISOString()
     };
 
-    const apps = gd('applications');
-    apps.push(app);
-    sd('applications', apps);
+    await setDoc('applications', refNo, app);
 
     $('applyResult').innerHTML = `
         <div class="app-status-card">
@@ -1148,11 +1228,12 @@ function submitApplication() {
         .forEach(id=>{ if($(id)) $(id).value=''; });
 }
 
-function checkApplicationStatus() {
+async function checkApplicationStatus() {
     const ref = $('checkRefNo').value.trim().toUpperCase();
     if (!ref) { alert('Enter a reference number.'); return; }
 
-    const app = gd('applications').find(a=>a.refNo===ref);
+    const apps = await gd('applications');
+    const app = apps.find(a=>a.refNo===ref);
     if (!app) {
         $('statusResult').innerHTML = '<div class="alert alert-danger">❌ No application found with this reference number.</div>';
         return;
@@ -1189,8 +1270,8 @@ function checkApplicationStatus() {
 // ============================================================
 //  APPLICATIONS ADMIN
 // ============================================================
-function loadApplications() {
-    const apps = gd('applications');
+async function loadApplications() {
+    const apps = await gd('applications');
     const tb   = $('applicationsTable');
     if (!tb) return;
 
@@ -1225,8 +1306,9 @@ function loadApplications() {
     </table></div>`;
 }
 
-function openApproveModal(refNo) {
-    const app = gd('applications').find(a=>a.refNo===refNo);
+async function openApproveModal(refNo) {
+    const apps = await gd('applications');
+    const app = apps.find(a=>a.refNo===refNo);
     if (!app) return;
     currentApproveRef = refNo;
 
@@ -1244,7 +1326,7 @@ function openApproveModal(refNo) {
     showModal('approveModal');
 }
 
-function confirmApproval() {
+async function confirmApproval() {
     if (!currentApproveRef) return;
     const sId    = $('approveStudentId').value.trim();
     const room   = $('approveRoom').value.trim();
@@ -1257,13 +1339,13 @@ function confirmApproval() {
     }
 
     // check ID unique
-    const students = gd('students');
+    const students = await gd('students');
     if (students.find(s=>s.id===sId)) {
         showAlert('approveAlert','❌ Student ID already exists! Choose another.','danger');
         return;
     }
 
-    const apps  = gd('applications');
+    const apps  = await gd('applications');
     const appIdx = apps.findIndex(a=>a.refNo===currentApproveRef);
     if (appIdx < 0) return;
     const app   = apps[appIdx];
@@ -1271,11 +1353,11 @@ function confirmApproval() {
     // generate unique hostel code
     const hostelCode = 'IBH-' + sId + '-' + Math.random().toString(36).substring(2,6).toUpperCase();
 
-    // update application
-    apps[appIdx] = { ...app, status:'approved', studentId:sId, roomNo:room, monthlyFee:fee, hostelCode, approvedDate:new Date().toISOString() };
-    sd('applications', apps);
+    // update application in Firestore
+    const updatedApp = { ...app, status:'approved', studentId:sId, roomNo:room, monthlyFee:fee, hostelCode, approvedDate:new Date().toISOString() };
+    await setDoc('applications', currentApproveRef, updatedApp);
 
-    // add to students
+    // add to students in Firestore
     const newStudent = {
         id:        sId,
         name:      app.name,
@@ -1293,8 +1375,7 @@ function confirmApproval() {
         status:    'active',
         joinDate:  join || new Date().toISOString()
     };
-    students.push(newStudent);
-    sd('students', students);
+    await setDoc('students', sId, newStudent);
 
     closeModal('approveModal');
     loadApplications();
@@ -1309,11 +1390,14 @@ function rejectApplication() {
     closeModal('approveModal');
 }
 
-function quickReject(refNo) {
+async function quickReject(refNo) {
     if (!confirm('Reject application '+refNo+'?')) return;
-    const apps = gd('applications');
+    const apps = await gd('applications');
     const idx  = apps.findIndex(a=>a.refNo===refNo);
-    if (idx>=0) { apps[idx].status='rejected'; sd('applications',apps); }
+    if (idx>=0) {
+        apps[idx].status='rejected';
+        await setDoc('applications', refNo, apps[idx]);
+    }
     loadApplications();
     loadDashboard();
 }
@@ -1372,8 +1456,9 @@ function closePrintOverlay() {
 }
 
 // ── View student ID card photos ────────────────────────────────────
-function viewStudentIdCards(i) {
-    const s = gd('students')[i];
+async function viewStudentIdCards(i) {
+    const students = await gd('students');
+    const s = students[i];
     if (!s) return;
     const front = s.idFront
         ? `<img src="${s.idFront}" style="width:100%;border-radius:8px;">`
@@ -1390,23 +1475,12 @@ function viewStudentIdCards(i) {
     showModal('idCardsModal');
 }
 
-function viewVisitorIds(idx) {
-    const v = gd('visitors')[idx];
-    if (!v) return;
-    const front = v.idFront ? `<img src="${v.idFront}" style="width:100%;border-radius:8px;">` : `<div style="padding:24px;text-align:center;color:#aaa;border:2px dashed #ccc;border-radius:8px;">No front photo</div>`;
-    const back  = v.idBack  ? `<img src="${v.idBack}"  style="width:100%;border-radius:8px;">` : `<div style="padding:24px;text-align:center;color:#aaa;border:2px dashed #ccc;border-radius:8px;">No back photo</div>`;
-    $('idCardsTitle').textContent = '🪪 Visitor ID — ' + v.name;
-    $('idCardsContent').innerHTML = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <div><p style="font-weight:700;color:var(--primary);margin-bottom:8px;">Front Side</p>${front}</div>
-            <div><p style="font-weight:700;color:var(--primary);margin-bottom:8px;">Back Side</p>${back}</div>
-        </div>`;
-    showModal('idCardsModal');
-}
+function viewVisitorIds(idx) { /* legacy - use viewVisitorIdsById */ }
 
 // ── Print student admission form (pre-filled) ──────────────────────
-function printStudentForm(i) {
-    const s = gd('students')[i];
+async function printStudentForm(i) {
+    const students = await gd('students');
+    const s = students[i];
     if (!s) return;
     const today = new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
     const photoHtml = s.photo
@@ -1511,7 +1585,7 @@ function printStudentForm(i) {
     showPrintOverlay(formHTML);
 }
 
-function saveStudent() {
+async function saveStudent() {
     const student = {
         id:         $('sId').value.trim(),
         name:       $('sName').value.trim(),
@@ -1537,14 +1611,13 @@ function saveStudent() {
         return;
     }
 
-    const students = gd('students');
+    const students = await gd('students');
     if (students.find(s=>s.id===student.id)) {
         showAlert('studentAlert','❌ Student ID already exists!','danger');
         return;
     }
 
-    students.push(student);
-    sd('students', students);
+    await setDoc('students', student.id, student);
     showAlert('studentAlert','✅ Student added successfully!','success');
     clearStudentForm();
     loadStudents();
@@ -1564,8 +1637,8 @@ function clearStudentForm() {
     studentIdBackB64  = null;
 }
 
-function loadStudents() {
-    const students = gd('students');
+async function loadStudents() {
+    const students = await gd('students');
     const tb = $('studentTable');
     if (!tb) return;
     if (!students.length) {
@@ -1583,35 +1656,29 @@ function loadStudents() {
             <td>
                 <button class="btn btn-success btn-sm" onclick="printStudentForm(${i})" title="Download Admission Form">📄 Form</button>
                 <button class="btn btn-info btn-sm" onclick="viewStudentIdCards(${i})" title="View ID Cards">🪪 ID</button>
-                <button class="btn btn-warning btn-sm" onclick="editStudentRoom(${i})">🏠</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteStudent(${i})">🗑️</button>
+                <button class="btn btn-warning btn-sm" onclick="editStudentRoom('${s.id}','${s.roomNo||''}')">🏠</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteStudent('${s.id}')">🗑️</button>
             </td>
         </tr>`).join('');
 }
 
-function editStudentRoom(i) {
-    const students = gd('students');
-    const r = prompt('New room number for '+students[i].name+':', students[i].roomNo||'');
+async function editStudentRoom(sid, currentRoom) {
+    const r = prompt('New room number:', currentRoom||'');
     if (r===null) return;
-    students[i].roomNo = r;
-    sd('students', students);
-    loadStudents();
-    loadRooms();
+    await db.collection('students').doc(sid).update({roomNo: r});
+    loadStudents(); loadRooms();
 }
 
-function deleteStudent(i) {
+async function deleteStudent(sid) {
     if (!confirm('Delete this student? This cannot be undone.')) return;
-    const students = gd('students');
-    students.splice(i,1);
-    sd('students', students);
-    loadStudents();
-    loadDashboard();
+    await delDoc('students', sid);
+    loadStudents(); loadDashboard();
 }
 
 // ============================================================
 //  CLEARANCES
 // ============================================================
-function submitClearance() {
+async function submitClearance() {
     const sid   = $('clearStudentId').value.trim();
     const sname = $('clearStudentName').value.trim();
     const date  = $('clearDate').value;
@@ -1623,7 +1690,7 @@ function submitClearance() {
         return;
     }
 
-    const students = gd('students');
+    const students = await gd('students');
     const student  = students.find(s=>s.id===sid);
     if (!student) {
         showAlert('clearanceAlert','❌ Student ID not found. Please check and try again.','danger');
@@ -1634,21 +1701,21 @@ function submitClearance() {
         return;
     }
 
-    const clears = gd('clearances');
+    const clears = await gd('clearances');
     if (clears.find(c=>c.studentId===sid&&c.status==='pending')) {
         showAlert('clearanceAlert','⚠️ A clearance request is already pending for this student.','warning');
         return;
     }
 
-    clears.push({ studentId:sid, studentName:sname, leavingDate:date, reason, details, status:'pending', submitDate:new Date().toISOString() });
-    sd('clearances', clears);
+    const clearDoc = { studentId:sid, studentName:sname, leavingDate:date, reason, details, status:'pending', submitDate:new Date().toISOString() };
+    await setDoc('clearances', sid+'_'+Date.now(), clearDoc);
     showAlert('clearanceAlert','✅ Clearance request submitted successfully! Admin will review shortly.','success');
     ['clearStudentId','clearStudentName','clearDate','clearDetails'].forEach(id=>{ if($(id)) $(id).value=''; });
     loadDashboard();
 }
 
-function loadClearances() {
-    const clears = gd('clearances');
+async function loadClearances() {
+    const clears = await gd('clearances');
     const el     = $('clearancesTable');
     if (!el) return;
 
@@ -1680,15 +1747,13 @@ function loadClearances() {
     </table></div>`;
 }
 
-function openClearanceReview(studentId) {
-    const clears  = gd('clearances');
+async function openClearanceReview(studentId) {
+    const clears  = await gd('clearances');
     const clear   = clears.find(c=>c.studentId===studentId&&c.status==='pending');
     if (!clear) return;
     currentClearRef = studentId;
 
-    const students = gd('students');
-    const student  = students.find(s=>s.id===studentId);
-    const vouchers = gd('vouchers');
+    const vouchers = await gd('vouchers');
     const unpaid   = vouchers.filter(v=>v.studentId===studentId&&v.status==='unpaid').reduce((s,v)=>s+v.total,0);
 
     $('clearanceReviewInfo').innerHTML = `
@@ -1703,11 +1768,10 @@ function openClearanceReview(studentId) {
     showModal('clearanceReviewModal');
 }
 
-function confirmClearance() {
+async function confirmClearance() {
     if (!currentClearRef) return;
 
-    // check pending dues
-    const vouchers = gd('vouchers');
+    const vouchers = await gd('vouchers');
     const unpaid   = vouchers.filter(v=>v.studentId===currentClearRef&&v.status==='unpaid').reduce((s,v)=>s+v.total,0);
     if (unpaid > 0) {
         showAlert('clearanceReviewAlert',`⚠️ Cannot clear student with Rs. ${unpaid.toFixed(0)} in pending dues. Mark all vouchers as paid first.`,'danger');
@@ -1716,46 +1780,41 @@ function confirmClearance() {
 
     if (!confirm('FINAL CONFIRMATION: This will permanently delete the student record. Proceed?')) return;
 
-    // update clearance status
-    const clears = gd('clearances');
-    const ci     = clears.findIndex(c=>c.studentId===currentClearRef&&c.status==='pending');
-    if (ci>=0) { clears[ci].status='approved'; clears[ci].approvedDate=new Date().toISOString(); sd('clearances',clears); }
+    // update clearance status in Firestore
+    const clears = await gd('clearances');
+    const clearSnap = await db.collection('clearances').where('studentId','==',currentClearRef).where('status','==','pending').get();
+    clearSnap.docs.forEach(async d => {
+        await d.ref.update({status:'approved', approvedDate: new Date().toISOString()});
+    });
 
-    // remove student
-    const students = gd('students');
-    const newStudents = students.filter(s=>s.id!==currentClearRef);
-    sd('students', newStudents);
+    // delete student
+    await delDoc('students', currentClearRef);
 
-    // remove vouchers
-    const newVouchers = vouchers.filter(v=>v.studentId!==currentClearRef);
-    sd('vouchers', newVouchers);
-
-    // remove attendance entries
-    // (we skip those as they're per-day keys; they'll expire harmlessly)
+    // delete student's vouchers
+    const vSnap = await db.collection('vouchers').where('studentId','==',currentClearRef).get();
+    const batch = db.batch();
+    vSnap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
 
     closeModal('clearanceReviewModal');
-    loadClearances();
-    loadDashboard();
-    loadStudents();
+    loadClearances(); loadDashboard(); loadStudents();
     alert('✅ Student record removed. Clearance approved.');
 }
 
-function rejectClearanceReq() {
+async function rejectClearanceReq() {
     if (!currentClearRef) return;
     if (!confirm('Reject this clearance request?')) return;
-    const clears = gd('clearances');
-    const ci = clears.findIndex(c=>c.studentId===currentClearRef&&c.status==='pending');
-    if (ci>=0) { clears[ci].status='rejected'; sd('clearances',clears); }
+    const clearSnap = await db.collection('clearances').where('studentId','==',currentClearRef).where('status','==','pending').get();
+    clearSnap.docs.forEach(async d => { await d.ref.update({status:'rejected'}); });
     closeModal('clearanceReviewModal');
-    loadClearances();
-    loadDashboard();
+    loadClearances(); loadDashboard();
 }
 
 // ============================================================
 //  VOUCHERS
 // ============================================================
-function loadVoucherStudents() {
-    const students = gd('students');
+async function loadVoucherStudents() {
+    const students = await gd('students');
     const sel      = $('vStudent');
     if (!sel) return;
     sel.innerHTML = '<option value="">-- Select Student --</option>' +
@@ -1777,24 +1836,23 @@ function calcVTotal() {
     $('vTotal').value = (fee+fine+dues).toFixed(0);
 }
 
-function generateVoucher() {
+async function generateVoucher() {
     const si = $('vStudent').value;
     if (si==='') { showAlert('voucherAlert','Select a student!','danger'); return; }
     const month = $('vMonth').value;
     if (!month)  { showAlert('voucherAlert','Select a month!','danger'); return; }
 
-    const student = gd('students')[si];
+    const students = await gd('students');
+    const student = students[si];
     const fee     = parseFloat($('vFee').value)||0;
     const fine    = parseFloat($('vFine').value)||0;
     const dues    = parseFloat($('vDues').value)||0;
     const total   = fee+fine+dues;
     const status  = $('vStatus').value;
-    const vNo     = genRef('IBH');
+    const vNo     = await genRef('IBH');
 
     const v = { vNo, studentId:student.id, studentName:student.name, month, fee, fine, dues, total, status, date:new Date().toISOString() };
-    const vouchers = gd('vouchers');
-    vouchers.push(v);
-    sd('vouchers', vouchers);
+    await setDoc('vouchers', vNo, v);
 
     showAlert('voucherAlert',`✅ Voucher ${vNo} generated!`,'success');
     renderVoucherPreview(v, student);
@@ -1934,11 +1992,11 @@ function renderVoucherPreview(v, student) {
     },150);
 }
 
-function printVoucher(vNo) {
-    const vouchers = gd('vouchers');
+async function printVoucher(vNo) {
+    const vouchers = await gd('vouchers');
     const v = vouchers.find(x=>x.vNo===vNo);
     if (!v) { alert('Voucher not found'); return; }
-    const students = gd('students');
+    const students  = await gd('students');
     const student  = students.find(s=>s.id===v.studentId) || {name:v.studentName,id:v.studentId,roomNo:'',phone:'',fatherName:'',address:''};
     const qrTxt    = `${vNo}|${v.studentId}|${v.studentName}|Rs.${v.total}`;
     const mk       = lbl => buildVoucherSlipHTML(v, student, lbl, qrTxt);
@@ -1954,33 +2012,31 @@ function printVoucher(vNo) {
 }
 
 
-function bulkGenerateVouchers() {
+async function bulkGenerateVouchers() {
     const month = prompt('Enter month (YYYY-MM) for bulk generation:');
     if (!month) return;
-    const students = gd('students');
+    const students = await gd('students');
     if (!students.length) { alert('No students!'); return; }
     if (!confirm(`Generate vouchers for all ${students.length} students for ${formatMonth(month)}?`)) return;
 
-    const vouchers = gd('vouchers');
+    const vouchers = await gd('vouchers');
     let count = 0;
-    students.forEach(s=>{
+    for (const s of students) {
         if (!vouchers.find(v=>v.studentId===s.id&&v.month===month)) {
-            const vNo = genRef('IBH');
-            vouchers.push({ vNo, studentId:s.id, studentName:s.name, month, fee:s.monthlyFee, fine:0, dues:0, total:s.monthlyFee, status:'unpaid', date:new Date().toISOString() });
+            const vNo = await genRef('IBH');
+            await setDoc('vouchers', vNo, { vNo, studentId:s.id, studentName:s.name, month, fee:s.monthlyFee, fine:0, dues:0, total:s.monthlyFee, status:'unpaid', date:new Date().toISOString() });
             count++;
         }
-    });
-    sd('vouchers', vouchers);
+    }
     alert(`✅ ${count} vouchers generated!`);
-    loadPayments();
-    loadDashboard();
+    loadPayments(); loadDashboard();
 }
 
 // ============================================================
 //  PAYMENTS
 // ============================================================
-function loadPayments() {
-    const vouchers = gd('vouchers');
+async function loadPayments() {
+    const vouchers = await gd('vouchers');
     const tb = $('paymentTable');
     if (!tb) return;
     if (!vouchers.length) {
@@ -2012,18 +2068,17 @@ function loadPayments() {
     }).join('');
 }
 
-function markPaid(vNo) {
-    const vouchers = gd('vouchers');
-    const v = vouchers.find(x=>x.vNo===vNo);
-    if (v) { v.status='paid'; sd('vouchers',vouchers); loadPayments(); loadDashboard(); loadDefaulters(); }
+async function markPaid(vNo) {
+    await db.collection('vouchers').doc(vNo).update({status:'paid'});
+    loadPayments(); loadDashboard(); loadDefaulters();
 }
 
 // ============================================================
 //  DEFAULTERS
 // ============================================================
-function loadDefaulters() {
-    const students = gd('students');
-    const vouchers = gd('vouchers');
+async function loadDefaulters() {
+    const students = await gd('students');
+    const vouchers = await gd('vouchers');
     const tb       = $('defaulterTable');
     if (!tb) return;
 
@@ -2055,14 +2110,12 @@ function loadDefaulters() {
         </tr>`).join('');
 }
 
-function markRegular(d) {
+async function markRegular(d) {
     if (!confirm(`Mark ${d.name} as regular? Creates ${d.unpaidCount} paid voucher(s).`)) return;
-    const vouchers = gd('vouchers');
-    d.unpaidMonths.forEach(month=>{
-        const vNo = genRef('IBH');
-        vouchers.push({ vNo, studentId:d.id, studentName:d.name, month, fee:d.monthlyFee, fine:0, dues:0, total:d.monthlyFee, status:'paid', date:new Date().toISOString() });
-    });
-    sd('vouchers', vouchers);
+    for (const month of d.unpaidMonths) {
+        const vNo = await genRef('IBH');
+        await setDoc('vouchers', vNo, { vNo, studentId:d.id, studentName:d.name, month, fee:d.monthlyFee, fine:0, dues:0, total:d.monthlyFee, status:'paid', date:new Date().toISOString() });
+    }
     loadDefaulters(); loadDashboard(); loadPayments();
     alert(`✅ ${d.name} marked regular!`);
 }
@@ -2070,48 +2123,46 @@ function markRegular(d) {
 // ============================================================
 //  EXPENSES
 // ============================================================
-function addExpense() {
+async function addExpense() {
     const amount = parseFloat($('expAmount').value);
     if (!amount) { showAlert('expenseAlert','Enter amount!','danger'); return; }
-    const expenses = gd('expenses');
-    expenses.push({ type:$('expType').value, amount, description:$('expDesc').value.trim(), date:new Date().toISOString() });
-    sd('expenses', expenses);
+    const docId = 'exp_' + Date.now();
+    await setDoc('expenses', docId, { type:$('expType').value, amount, description:$('expDesc').value.trim(), date:new Date().toISOString(), _id: docId });
     $('expAmount').value=''; $('expDesc').value='';
     showAlert('expenseAlert','✅ Expense added!','success');
     loadExpenses(); loadDashboard();
 }
 
-function loadExpenses() {
-    const expenses = gd('expenses');
+async function loadExpenses() {
+    const expenses = await gd('expenses');
     const tb = $('expenseTable');
     if (!tb) return;
     if (!expenses.length) {
         tb.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:16px;">No expenses</td></tr>';
         return;
     }
-    tb.innerHTML = [...expenses].reverse().map((e,i)=>`
+    const sorted = [...expenses].sort((a,b)=> new Date(b.date)-new Date(a.date));
+    tb.innerHTML = sorted.map((e)=>`
         <tr>
             <td>${new Date(e.date).toLocaleDateString()}</td>
             <td><strong>${e.type}</strong></td>
             <td><strong>Rs. ${e.amount.toFixed(0)}</strong></td>
             <td>${e.description||'—'}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="deleteExpense(${expenses.length-1-i})">🗑️</button></td>
+            <td><button class="btn btn-danger btn-sm" onclick="deleteExpense('${e._id||''}')">🗑️</button></td>
         </tr>`).join('');
 }
 
-function deleteExpense(i) {
+async function deleteExpense(docId) {
     if (!confirm('Delete this expense?')) return;
-    const expenses = gd('expenses');
-    expenses.splice(i,1);
-    sd('expenses', expenses);
+    if (docId) await delDoc('expenses', docId);
     loadExpenses(); loadDashboard();
 }
 
 // ============================================================
 //  ROOMS
 // ============================================================
-function loadRooms() {
-    const students = gd('students');
+async function loadRooms() {
+    const students = await gd('students');
     const rooms = {};
     students.forEach(s=>{ if(s.roomNo){ if(!rooms[s.roomNo]) rooms[s.roomNo]=[]; rooms[s.roomNo].push(s); } });
 
@@ -2124,7 +2175,7 @@ function loadRooms() {
                     <td style="font-family:'IBM Plex Mono',monospace;">${s.id}</td>
                     <td>${s.name}</td>
                     <td>${s.phone}</td>
-                    <td><button class="btn btn-warning btn-sm" onclick="changeRoom('${s.id}')">Change Room</button></td>
+                    <td><button class="btn btn-warning btn-sm" onclick="changeRoom('${s.id}','${s.roomNo||''}')">Change Room</button></td>
                 </tr>`).join('')}
             </table>
         </div>`).join('');
@@ -2138,7 +2189,7 @@ function loadRooms() {
                 <td style="font-family:'IBM Plex Mono',monospace;">${s.id}</td>
                 <td>${s.name}</td>
                 <td>${s.phone}</td>
-                <td><button class="btn btn-success btn-sm" onclick="changeRoom('${s.id}')">Assign Room</button></td>
+                <td><button class="btn btn-success btn-sm" onclick="changeRoom('${s.id}','')">Assign Room</button></td>
             </tr>`).join('')}
             </table>
         </div>` : '';
@@ -2146,24 +2197,20 @@ function loadRooms() {
     $('roomsDisplay').innerHTML = assignedHtml + uHtml || '<div class="alert alert-info">No students yet.</div>';
 }
 
-function changeRoom(sid) {
-    const students = gd('students');
-    const s = students.find(x=>x.id===sid);
-    if (!s) return;
-    const r = prompt(`Room for ${s.name}:`, s.roomNo||'');
+async function changeRoom(sid, currentRoom) {
+    const r = prompt(`Room for student ${sid}:`, currentRoom||'');
     if (r===null) return;
-    s.roomNo = r;
-    sd('students', students);
+    await db.collection('students').doc(sid).update({roomNo: r});
     loadRooms(); loadStudents();
 }
 
 // ============================================================
 //  ATTENDANCE
 // ============================================================
-function loadAttendance() {
-    const students = gd('students');
+async function loadAttendance() {
+    const students = await gd('students');
     const today    = new Date().toISOString().slice(0,10);
-    const att      = gd('att_'+today);
+    const att      = await gd('att_'+today);
 
     $('attendanceDisplay').innerHTML = `
         <div style="margin-bottom:16px;font-size:14px;">
@@ -2192,20 +2239,26 @@ function loadAttendance() {
         </table></div>`;
 }
 
-function markAtt(sid, status) {
+async function markAtt(sid, status) {
     const today = new Date().toISOString().slice(0,10);
-    const att   = gd('att_'+today);
+    const att   = await gd('att_'+today);
     const i     = att.findIndex(a=>a.studentId===sid);
     if (i>=0) att[i].status=status; else att.push({studentId:sid,status,date:today});
-    sd('att_'+today, att);
+    // store as a single doc per day
+    await db.collection('att_'+today).doc(sid).set({studentId:sid,status,date:today});
     loadAttendance(); loadDashboard();
 }
 
-function markAllPresent() {
+async function markAllPresent() {
     if (!confirm('Mark all students present for today?')) return;
-    const students = gd('students');
+    const students = await gd('students');
     const today    = new Date().toISOString().slice(0,10);
-    sd('att_'+today, students.map(s=>({studentId:s.id,status:'present',date:today})));
+    const batch = db.batch();
+    students.forEach(s => {
+        const ref = db.collection('att_'+today).doc(s.id);
+        batch.set(ref, {studentId:s.id, status:'present', date:today});
+    });
+    await batch.commit();
     loadAttendance(); loadDashboard();
     alert('✅ All marked present!');
 }
@@ -2213,26 +2266,26 @@ function markAllPresent() {
 // ============================================================
 //  COMPLAINTS
 // ============================================================
-function loadComplaints() {
-    const complaints = gd('complaints');
+async function loadComplaints() {
+    const complaints = await gd('complaints');
     $('complaintsDisplay').innerHTML = `<div style="overflow-x:auto;"><table>
         <thead><tr><th>Date</th><th>Student</th><th>Type</th><th>Description</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
         ${!complaints.length ? '<tr><td colspan="6" style="text-align:center;padding:16px;">No complaints</td></tr>' :
-          complaints.map((c,i)=>`<tr>
+          complaints.map((c)=>`<tr>
             <td>${new Date(c.date).toLocaleDateString()}</td>
             <td>${c.studentName}</td>
             <td><strong>${c.type}</strong></td>
             <td>${c.description}</td>
             <td><span class="badge badge-${c.status==='resolved'?'success':'warning'}">${c.status}</span></td>
-            <td>${c.status==='pending'?`<button class="btn btn-success btn-sm" onclick="resolveComplaint(${i})">✅ Resolve</button>`:'✓'}</td>
+            <td>${c.status==='pending'?`<button class="btn btn-success btn-sm" onclick="resolveComplaint('${c._id}')">✅ Resolve</button>`:'✓'}</td>
         </tr>`).join('')}
         </tbody>
     </table></div>`;
 }
 
-function addComplaint() {
-    const students = gd('students');
+async function addComplaint() {
+    const students = await gd('students');
     const sid = prompt('Student ID:');
     if (!sid) return;
     const s = students.find(x=>x.id===sid);
@@ -2241,35 +2294,31 @@ function addComplaint() {
     if (!type) return;
     const desc = prompt('Description:');
     if (!desc) return;
-    const complaints = gd('complaints');
-    complaints.push({studentId:sid,studentName:s.name,type,description:desc,status:'pending',date:new Date().toISOString()});
-    sd('complaints', complaints);
+    const docId = 'cmp_'+Date.now();
+    await setDoc('complaints', docId, {_id:docId, studentId:sid,studentName:s.name,type,description:desc,status:'pending',date:new Date().toISOString()});
     loadComplaints();
     alert('✅ Complaint registered!');
 }
 
-function resolveComplaint(i) {
-    const complaints = gd('complaints');
-    complaints[i].status='resolved';
-    sd('complaints', complaints);
+async function resolveComplaint(docId) {
+    await db.collection('complaints').doc(docId).update({status:'resolved'});
     loadComplaints();
 }
 
 // ============================================================
 //  VISITORS
 // ============================================================
-function loadVisitors() {
-    const visitors = gd('visitors');
+async function loadVisitors() {
+    const visitors = await gd('visitors');
     const rows = !visitors.length
         ? '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;">No visitors logged yet</td></tr>'
-        : [...visitors].reverse().map((v,ri)=>{
-            const realIdx = visitors.length-1-ri;
+        : [...visitors].sort((a,b)=>new Date(b.date)-new Date(a.date)).map((v)=>{
             const idBtn = (v.idFront||v.idBack)
-                ? `<button class="btn btn-info btn-sm" onclick="viewVisitorIds(${realIdx})">🪪</button>`
+                ? `<button class="btn btn-info btn-sm" onclick="viewVisitorIdsById('${v._id}')">🪪</button>`
                 : '<span style="color:#bbb;font-size:11px;">—</span>';
             const vBtn = v.voucherNo
                 ? `<button class="btn btn-primary btn-sm" onclick="printVisitorVoucher('${v.voucherNo}')">🖨️</button>`
-                : `<button class="btn btn-warning btn-sm" onclick="genVisitorVoucher(${realIdx})">💰 Rs.300</button>`;
+                : `<button class="btn btn-warning btn-sm" onclick="genVisitorVoucherById('${v._id}')">💰 Rs.300</button>`;
             return `<tr>
                 <td>${new Date(v.date).toLocaleDateString()}</td>
                 <td><strong>${v.name}</strong></td>
@@ -2288,6 +2337,34 @@ function loadVisitors() {
     </table></div>`;
 }
 
+async function saveVisitor(genVoucher) {
+    const name     = $('visName').value.trim();
+    const visiting = $('visVisiting').value.trim();
+    const purpose  = $('visPurpose').value.trim();
+    if (!name||!visiting||!purpose) {
+        showAlert('visitorAlert','⚠️ Fill Visitor Name, Visiting Student and Purpose.','danger');
+        return;
+    }
+    const idFront = ($('visIdFrontPrev')&&$('visIdFrontPrev').querySelector('img')) ? $('visIdFrontPrev').querySelector('img').src : null;
+    const idBack  = ($('visIdBackPrev') &&$('visIdBackPrev').querySelector('img'))  ? $('visIdBackPrev').querySelector('img').src  : null;
+    const timeIn  = $('visTimeIn').value || new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+    const docId = 'vis_'+Date.now();
+    const entry = {
+        _id: docId, name, cnic:$('visCnic').value.trim(), phone:$('visPhone').value.trim(),
+        visiting, purpose, timeIn, timeOut:'', idFront, idBack, voucherNo:null,
+        date: new Date().toISOString()
+    };
+    if (genVoucher) {
+        const vNo = await genRef('VIS');
+        entry.voucherNo = vNo;
+        await setDoc('visitorVouchers', vNo, { vNo, name, cnic:entry.cnic, visiting, purpose, amount:300, date:entry.date, status:'unpaid' });
+    }
+    await setDoc('visitors', docId, entry);
+    closeModal('addVisitorModal');
+    loadVisitors();
+    if (genVoucher && entry.voucherNo) printVisitorVoucher(entry.voucherNo);
+}
+
 function openAddVisitorModal() {
     ['visName','visCnic','visVisiting','visPurpose','visPhone'].forEach(id=>{ if($(id)) $(id).value=''; });
     const tIn = $('visTimeIn');
@@ -2300,54 +2377,35 @@ function openAddVisitorModal() {
     showModal('addVisitorModal');
 }
 
-function saveVisitor(genVoucher) {
-    const name     = $('visName').value.trim();
-    const visiting = $('visVisiting').value.trim();
-    const purpose  = $('visPurpose').value.trim();
-    if (!name||!visiting||!purpose) {
-        showAlert('visitorAlert','⚠️ Fill Visitor Name, Visiting Student and Purpose.','danger');
-        return;
-    }
-    const idFront = ($('visIdFrontPrev')&&$('visIdFrontPrev').querySelector('img')) ? $('visIdFrontPrev').querySelector('img').src : null;
-    const idBack  = ($('visIdBackPrev') &&$('visIdBackPrev').querySelector('img'))  ? $('visIdBackPrev').querySelector('img').src  : null;
-    const timeIn  = $('visTimeIn').value || new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    const entry = {
-        name, cnic:$('visCnic').value.trim(), phone:$('visPhone').value.trim(),
-        visiting, purpose, timeIn, timeOut:'', idFront, idBack, voucherNo:null,
-        date: new Date().toISOString()
-    };
-    const visitors = gd('visitors');
-    visitors.push(entry);
-    if (genVoucher) {
-        const vNo = genRef('VIS');
-        entry.voucherNo = vNo;
-        const vvs = gd('visitorVouchers');
-        vvs.push({ vNo, name, cnic:entry.cnic, visiting, purpose, amount:300, date:entry.date, status:'unpaid' });
-        sd('visitorVouchers', vvs);
-    }
-    sd('visitors', visitors);
-    closeModal('addVisitorModal');
-    loadVisitors();
-    if (genVoucher && entry.voucherNo) printVisitorVoucher(entry.voucherNo);
-}
-
-function genVisitorVoucher(idx) {
-    const visitors = gd('visitors');
-    const v = visitors[idx];
-    if (!v) return;
+async function genVisitorVoucherById(visId) {
+    const snap = await db.collection('visitors').doc(visId).get();
+    if (!snap.exists) return;
+    const v = snap.data();
     if (v.voucherNo) { printVisitorVoucher(v.voucherNo); return; }
-    const vNo = genRef('VIS');
-    v.voucherNo = vNo;
-    const vvs = gd('visitorVouchers');
-    vvs.push({ vNo, name:v.name, cnic:v.cnic, visiting:v.visiting, purpose:v.purpose, amount:300, date:v.date, status:'unpaid' });
-    sd('visitorVouchers', vvs);
-    sd('visitors', visitors);
+    const vNo = await genRef('VIS');
+    await db.collection('visitors').doc(visId).update({voucherNo: vNo});
+    await setDoc('visitorVouchers', vNo, { vNo, name:v.name, cnic:v.cnic, visiting:v.visiting, purpose:v.purpose, amount:300, date:v.date, status:'unpaid' });
     loadVisitors();
     printVisitorVoucher(vNo);
 }
 
-function printVisitorVoucher(vNo) {
-    const vvs = gd('visitorVouchers');
+async function viewVisitorIdsById(visId) {
+    const snap = await db.collection('visitors').doc(visId).get();
+    if (!snap.exists) return;
+    const v = snap.data();
+    const front = v.idFront ? `<img src="${v.idFront}" style="width:100%;border-radius:8px;">` : `<div style="padding:24px;text-align:center;color:#aaa;border:2px dashed #ccc;border-radius:8px;">No front photo</div>`;
+    const back  = v.idBack  ? `<img src="${v.idBack}"  style="width:100%;border-radius:8px;">` : `<div style="padding:24px;text-align:center;color:#aaa;border:2px dashed #ccc;border-radius:8px;">No back photo</div>`;
+    $('idCardsTitle').textContent = '🪪 Visitor ID — ' + v.name;
+    $('idCardsContent').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div><p style="font-weight:700;color:var(--primary);margin-bottom:8px;">Front Side</p>${front}</div>
+            <div><p style="font-weight:700;color:var(--primary);margin-bottom:8px;">Back Side</p>${back}</div>
+        </div>`;
+    showModal('idCardsModal');
+}
+
+async function printVisitorVoucher(vNo) {
+    const vvs = await gd('visitorVouchers');
     const vv  = vvs.find(x=>x.vNo===vNo);
     if (!vv) { alert('Voucher not found'); return; }
     const qrTxt = `${vNo}|${vv.name}|Rs.300|VISITOR`;
@@ -2424,21 +2482,21 @@ function buildVisitorVoucherSlip(vv, copyLabel, qrTxt) {
 // ============================================================
 //  LEAVE
 // ============================================================
-function loadLeave() {
-    const leaves = gd('leaves');
+async function loadLeave() {
+    const leaves = await gd('leaves');
     $('leaveDisplay').innerHTML = `<div style="overflow-x:auto;"><table>
         <thead><tr><th>Student</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
         ${!leaves.length ? '<tr><td colspan="6" style="text-align:center;padding:16px;">No leave applications</td></tr>' :
-          leaves.map((l,i)=>`<tr>
+          leaves.map((l)=>`<tr>
             <td><strong>${l.studentName}</strong></td>
             <td>${l.fromDate}</td>
             <td>${l.toDate}</td>
             <td>${l.reason}</td>
             <td><span class="badge badge-${l.status==='approved'?'success':l.status==='rejected'?'danger':'warning'}">${l.status}</span></td>
             <td>${l.status==='pending'
-                ?`<button class="btn btn-success btn-sm" onclick="approveLeave(${i})">✅</button>
-                  <button class="btn btn-danger btn-sm" onclick="rejectLeave(${i})">❌</button>`
+                ?`<button class="btn btn-success btn-sm" onclick="approveLeave('${l._id}')">✅</button>
+                  <button class="btn btn-danger btn-sm" onclick="rejectLeave('${l._id}')">❌</button>`
                 : l.status}
             </td>
         </tr>`).join('')}
@@ -2446,14 +2504,14 @@ function loadLeave() {
     </table></div>`;
 }
 
-function approveLeave(i) { const l=gd('leaves'); l[i].status='approved'; sd('leaves',l); loadLeave(); alert('✅ Approved!'); }
-function rejectLeave(i)  { const l=gd('leaves'); l[i].status='rejected'; sd('leaves',l); loadLeave(); alert('❌ Rejected!'); }
+async function approveLeave(docId) { await db.collection('leaves').doc(docId).update({status:'approved'}); loadLeave(); alert('✅ Approved!'); }
+async function rejectLeave(docId)  { await db.collection('leaves').doc(docId).update({status:'rejected'}); loadLeave(); alert('❌ Rejected!'); }
 
 // ============================================================
 //  REPORTS
 // ============================================================
-function reportRoomOccupancy() {
-    const students = gd('students');
+async function reportRoomOccupancy() {
+    const students = await gd('students');
     const rooms = {};
     students.forEach(s=>{ if(s.roomNo){ rooms[s.roomNo]=(rooms[s.roomNo]||0)+1; } });
     $('reportDisplay').innerHTML = `
@@ -2468,16 +2526,16 @@ function reportRoomOccupancy() {
         </div>`;
 }
 
-function reportAttendance() {
+async function reportAttendance() {
     const month    = prompt('Month (YYYY-MM):') || new Date().toISOString().slice(0,7);
-    const students = gd('students');
+    const students = await gd('students');
     const data     = {};
     students.forEach(s=>{ data[s.id]={name:s.name,present:0,absent:0,total:0}; });
 
     for (let d=1; d<=31; d++) {
         const dateStr = month+'-'+String(d).padStart(2,'0');
         try {
-            const att = gd('att_'+dateStr);
+            const att = await gd('att_'+dateStr);
             att.forEach(a=>{
                 if (data[a.studentId]) {
                     data[a.studentId].total++;
@@ -2509,12 +2567,14 @@ function reportAttendance() {
         </div>`;
 }
 
-function reportCustom() {
+async function reportCustom() {
     const from = prompt('From Date (YYYY-MM-DD):');
     const to   = prompt('To Date (YYYY-MM-DD):');
     if (!from||!to) return;
-    const vouchers = gd('vouchers').filter(v=>v.date.slice(0,10)>=from&&v.date.slice(0,10)<=to);
-    const expenses = gd('expenses').filter(e=>e.date.slice(0,10)>=from&&e.date.slice(0,10)<=to);
+    const allVouchers = await gd('vouchers');
+    const allExpenses = await gd('expenses');
+    const vouchers = allVouchers.filter(v=>v.date.slice(0,10)>=from&&v.date.slice(0,10)<=to);
+    const expenses = allExpenses.filter(e=>e.date.slice(0,10)>=from&&e.date.slice(0,10)<=to);
     const income   = vouchers.filter(v=>v.status==='paid').reduce((s,v)=>s+v.total,0);
     const exp      = expenses.reduce((s,e)=>s+e.amount,0);
     $('reportDisplay').innerHTML = `
@@ -2536,9 +2596,9 @@ function reportCustom() {
         </div>`;
 }
 
-function reportFinance() {
-    const vouchers = gd('vouchers');
-    const expenses = gd('expenses');
+async function reportFinance() {
+    const vouchers = await gd('vouchers');
+    const expenses = await gd('expenses');
     const income   = vouchers.filter(v=>v.status==='paid').reduce((s,v)=>s+v.total,0);
     const exp      = expenses.reduce((s,e)=>s+e.amount,0);
     const byType   = {};
@@ -2562,10 +2622,11 @@ function reportFinance() {
 // ============================================================
 //  PUBLIC — HOSTEL CARD
 // ============================================================
-function generateHostelCard() {
+async function generateHostelCard() {
     const sid = $('cardStudentId').value.trim();
     if (!sid) { alert('Enter Student ID'); return; }
-    const s = gd('students').find(x=>x.id===sid);
+    const students = await gd('students');
+    const s = students.find(x=>x.id===sid);
     if (!s) { $('cardDisplay').innerHTML='<div class="alert alert-danger">❌ Student not found!</div>'; return; }
 
     const photo = s.photo ? `<img src="${s.photo}" alt="${s.name}">` : '<span style="font-size:64px;color:#ccc;">👤</span>';
@@ -2611,8 +2672,9 @@ function generateHostelCard() {
     },150);
 }
 
-function printHostelCardOverlay(sid) {
-    const s = gd('students').find(x=>x.id===sid);
+async function printHostelCardOverlay(sid) {
+    const students = await gd('students');
+    const s = students.find(x=>x.id===sid);
     if (!s) return;
     const photo   = s.photo ? `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;">` : '<span style="font-size:64px;color:#ccc;">👤</span>';
     const qrData  = `ID:${s.id}|Name:${s.name}|Code:${s.hostelCode}|Room:${s.roomNo}`;
@@ -2660,12 +2722,14 @@ function printHostelCardOverlay(sid) {
 // ============================================================
 //  PUBLIC — VOUCHER LIST
 // ============================================================
-function loadPublicVouchers() {
+async function loadPublicVouchers() {
     const sid = $('pubVoucherStudentId').value.trim();
     if (!sid) { alert('Enter Student ID'); return; }
-    const s = gd('students').find(x=>x.id===sid);
+    const students = await gd('students');
+    const s = students.find(x=>x.id===sid);
     if (!s) { $('pubVoucherDisplay').innerHTML='<div class="alert alert-danger">❌ Student not found!</div>'; return; }
-    const vouchers = gd('vouchers').filter(v=>v.studentId===sid);
+    const allVouchers = await gd('vouchers');
+    const vouchers = allVouchers.filter(v=>v.studentId===sid);
     if (!vouchers.length) { $('pubVoucherDisplay').innerHTML=`<div class="alert alert-info">No vouchers for ${s.name}. Contact admin.</div>`; return; }
     $('pubVoucherDisplay').innerHTML=`
         <h4 style="margin:18px 0;color:var(--primary);">Vouchers for ${s.name}</h4>
@@ -2684,12 +2748,14 @@ function loadPublicVouchers() {
 // ============================================================
 //  PUBLIC — FEE STATUS
 // ============================================================
-function checkFeeStatus() {
+async function checkFeeStatus() {
     const sid = $('feeStatusId').value.trim();
     if (!sid) { alert('Enter Student ID'); return; }
-    const s = gd('students').find(x=>x.id===sid);
+    const students = await gd('students');
+    const s = students.find(x=>x.id===sid);
     if (!s) { $('feeStatusDisplay').innerHTML='<div class="alert alert-danger">❌ Student not found!</div>'; return; }
-    const vouchers = gd('vouchers').filter(v=>v.studentId===sid);
+    const allVouchers = await gd('vouchers');
+    const vouchers = allVouchers.filter(v=>v.studentId===sid);
     const paid   = vouchers.filter(v=>v.status==='paid').reduce((s,v)=>s+v.total,0);
     const unpaid = vouchers.filter(v=>v.status==='unpaid').reduce((s,v)=>s+v.total,0);
     $('feeStatusDisplay').innerHTML=`
