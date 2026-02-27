@@ -9,10 +9,10 @@
 <script>
   // EmailJS Configuration — replace with your real credentials
   // Sign up at https://www.emailjs.com (free tier: 200 emails/month)
-  const EMAILJS_SERVICE_ID  = 'YOUR_SERVICE_ID';   // e.g. 'service_abc123'
-  const EMAILJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';  // e.g. 'template_xyz789'
-  const EMAILJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';   // e.g. 'abcDEFghiJKL'
-  // After setup, emailjs will send from noreply@ibh (set reply-to in your template)
+  const EMAILJS_SERVICE_ID  = 'service_m4ru26v';
+  const EMAILJS_TEMPLATE_ID = 'template_t8hychk';
+  const EMAILJS_PUBLIC_KEY  = 'BI6czLrHai_uAcgA7';
+  // Emails sent from noreply@ibh (Islam Boys Hostel)
   emailjs.init(EMAILJS_PUBLIC_KEY);
 </script>
 <!-- ===== FIREBASE SDK ===== -->
@@ -744,17 +744,12 @@ tr:hover { background: #e3f2fd; }
                     </div>
                     <div id="applicationsTable"></div>
                 </div>
-                <!-- Email Setup Reminder -->
-                <div class="card" style="border-left:6px solid #ff9800;">
-                    <div class="card-header"><h3>📧 Email System Setup (EmailJS)</h3></div>
-                    <div class="alert alert-warning" style="margin:0;">
-                        <strong>To enable email voucher delivery (noreply@ibh):</strong><br>
-                        1. Go to <a href="https://www.emailjs.com" target="_blank">emailjs.com</a> → Create free account (200 emails/month free)<br>
-                        2. Add an Email Service (Gmail, Outlook, or custom SMTP)<br>
-                        3. Create an Email Template using these variables:<br>
-                        &nbsp;&nbsp;<code>{{to_email}} {{to_name}} {{voucher_no}} {{month}} {{amount_total}} {{student_id}} {{due_date}} {{hostel_name}} {{status}}</code><br>
-                        4. Set the template <strong>From Name</strong> to <code>Islam Boys Hostel</code> and <strong>Reply-To</strong> to <code>noreply@ibh</code><br>
-                        5. Replace <code>YOUR_SERVICE_ID</code>, <code>YOUR_TEMPLATE_ID</code>, <code>YOUR_PUBLIC_KEY</code> at the top of this HTML file
+                <div class="card" style="border-left:6px solid #4caf50;">
+                    <div class="card-header"><h3>📧 Email System Status</h3></div>
+                    <div class="alert alert-success" style="margin:0;">
+                        ✅ <strong>EmailJS is configured and ready!</strong><br>
+                        Service: <code>service_m4ru26v</code> &nbsp;|&nbsp; Template: <code>template_t8hychk</code><br>
+                        Use the <strong>📧 Email</strong> button on any voucher, or <strong>📧 Bulk Email Vouchers</strong> to send all students their voucher for a given month.
                     </div>
                 </div>
             </div>
@@ -2216,7 +2211,7 @@ async function markPaid(vNo) {
 // ============================================================
 async function sendVoucherEmail(vNo) {
     // Verify EmailJS is configured
-    if (EMAILJS_PUBLIC_KEY === 'YOUR_PUBLIC_KEY') {
+    if (EMAILJS_PUBLIC_KEY === '__UNCONFIGURED__') {
         alert('⚠️ Email system not configured yet!\n\nSetup steps:\n1. Go to https://www.emailjs.com and create a free account\n2. Add an email service (Gmail / Outlook etc.)\n3. Create an email template with these variables:\n   {{to_email}}, {{to_name}}, {{voucher_no}}, {{month}}, {{amount}}, {{student_id}}, {{hostel_code}}, {{due_date}}, {{hostel_name}}\n4. Replace YOUR_SERVICE_ID, YOUR_TEMPLATE_ID, YOUR_PUBLIC_KEY\n   at the top of this file with your actual credentials\n5. Set Reply-To as "noreply@ibh" in your template settings');
         return;
     }
@@ -2268,7 +2263,7 @@ async function sendVoucherEmail(vNo) {
 }
 
 async function sendVoucherEmailBulk() {
-    if (EMAILJS_PUBLIC_KEY === 'YOUR_PUBLIC_KEY') {
+    if (EMAILJS_PUBLIC_KEY === '__UNCONFIGURED__') {
         alert('⚠️ Email system not configured yet! Click "Send Voucher Email" on a single voucher first to see setup instructions.');
         return;
     }
