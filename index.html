@@ -2234,7 +2234,7 @@ async function sendVoucherEmail(vNo) {
     const vDate = new Date(v.date||Date.now()).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
 
     const params = {
-        to_email:     s.email,
+        to_email:     s.email,   // used in template {{to_email}}
         to_name:      s.name,
         student_id:   s.id,
         hostel_code:  s.hostelCode || '—',
